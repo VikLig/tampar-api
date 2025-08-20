@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"tampar-api/mapper"
 	"tampar-api/model"
@@ -38,24 +37,31 @@ func NewCommonSvc(
 
 func (s CommonSvc) Process(c *gin.Context) {
 	var (
+		criteria model.DataExcel
 		data model.DataExcel
 		zipFileName string
 		zipBytes []byte
 		errData error
 	)
 	
-	errData = c.ShouldBindJSON(&data)
+	errData = c.ShouldBindJSON(&criteria)
 	if errData != nil {
 		return
 	}
+	data.UseExcel = criteria.UseExcel
+	data.EnvSource = criteria.EnvSource
+	data.EnvTarget = criteria.EnvTarget
+	data.Mode = criteria.Mode
+	data.OutputMode = criteria.OutputMode
+	data.Schema = criteria.Schema
 
-	if data.UseExcel == "Y" && data.ExcelFile == nil {
+	if criteria.UseExcel == "Y" && criteria.ExcelFile == nil {
 		c.JSON(ErrorBody(errors.New("Excel file is required")))
 		return
 	}
 
 	if data.Mode == "COMPARE" {
-		zipBytes, zipFileName, errData = CompareObject(data)
+		zipBytes, zipFileName, errData = CompareObject(data, criteria.ExcelFile)
 		if errData != nil {
 			c.String(500, "Failed to create zip: %v", errData)
 			return
@@ -63,8 +69,8 @@ func (s CommonSvc) Process(c *gin.Context) {
 			c.String(400, "Empty Object DB")
 			return
 		} 
-	} else {
-		zipBytes, zipFileName, errData = GenerateObject(data)
+	} else if data.Mode == "GENERATE" {
+		zipBytes, zipFileName, errData = GenerateObject(data, criteria.ExcelFile)
 		if errData != nil {
 			c.String(500, "Failed to create zip: %v", errData)
 			return
@@ -80,22 +86,30 @@ func (s CommonSvc) Process(c *gin.Context) {
 	// c.Header("Content-Type", "application/zip")
 	// c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 	// c.Data(200, "application/zip", zipBytes)
-	c.Writer.Header().Add("Content-Description", "File Transfer")
-	c.Writer.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(zipFileName)))
-	c.Writer.Header().Add("Content-Type", "application/zip")
-	c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
+	// c.Writer.Header().Add("Content-Description", "File Transfer")
+	// c.Writer.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(zipFileName)))
+	// c.Writer.Header().Add("Content-Type", "application/zip")
+	// c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
 
-	reader := bytes.NewReader(zipBytes)
-	_, errData = io.Copy(c.Writer, reader)
-	if errData != nil {
-		c.JSON(ErrorBody(errData))
-		return
-	}
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(zipFileName)))
+	c.Header("Content-Type", "application/zip")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Data(200, "application/zip", zipBytes)
 
-	c.JSON(SuccessBody(nil, "Success"))
+	// reader := bytes.NewReader(zipBytes)
+	// _, errData = io.Copy(c.Writer, reader)
+	// if errData != nil {
+	// 	c.JSON(ErrorBody(errData))
+	// 	return
+	// }
+
+	//c.JSON(SuccessBody(nil, "Success"))
 }
 
-func GenerateObject(data model.DataExcel)([]byte, string, error) {
+func GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, error) {
 	var (
 		byteReader   *bytes.Reader
 		xlsx         *excelize.File
@@ -105,7 +119,7 @@ func GenerateObject(data model.DataExcel)([]byte, string, error) {
 	)
 
 	if data.UseExcel == "Y" {
-		byteReader = bytes.NewReader(data.ExcelFile)
+		byteReader = bytes.NewReader(excelFile)
 		xlsx, errData = excelize.OpenReader(byteReader)
 		if errData != nil {
 			return nil, "", errData
@@ -125,19 +139,17 @@ func GenerateObject(data model.DataExcel)([]byte, string, error) {
 	return CreateFileObjectDB(listObjectDb, data.EnvSource)
 }
 
-func CompareObject(data model.DataExcel) ([]byte, string, error) {
+func CompareObject(data model.DataExcel, excelFile []byte) ([]byte, string, error) {
 	var (
-		byteReader *bytes.Reader
-		xlsx       *excelize.File
-		errData    error
-		listObjectDb []model.OracleUserObject
-		listExclude []model.OracleUserObject
-		oraSourceDbList []model.Database
-		oraTargetDbList []model.Database
-		oraDbList []model.Database
+		byteReader 		*bytes.Reader
+		xlsx       		*excelize.File
+		errData    		error
+		listObjectDb 	[]model.OracleUserObject
+		listExclude 	[]model.OracleUserObject
 	)
+
 	if data.UseExcel == "Y" {
-		byteReader = bytes.NewReader(data.ExcelFile)
+		byteReader = bytes.NewReader(excelFile)
 		xlsx, errData = excelize.OpenReader(byteReader)
 		if errData != nil {
 			return nil, "", errData
@@ -150,44 +162,52 @@ func CompareObject(data model.DataExcel) ([]byte, string, error) {
 		}
 		data.Schema = GetSchemaByObject(listObjectDb)
 	}
-	oraSourceDbList = GetOraSource(data.Schema, data.EnvSource)
-	oraTargetDbList = GetOraSource(data.Schema, data.EnvTarget)
-	oraDbList = append(oraDbList, oraSourceDbList...)
-	oraDbList = append(oraDbList, oraTargetDbList...)
 
-	listObjectDbAll := GetListObjectDb(oraDbList, listObjectDb, data)
-	listResult := CompareObjectDb(listObjectDbAll, listObjectDb, listExclude, data)
-	return CreateFileObjectDBCompare(listResult, data)
+	listObjectDbAll := GetListObjectDb(GetOracleDB(data), listObjectDb, data)
+	listResultAll, listResultExcel := CompareObjectDb(listObjectDbAll, listObjectDb, listExclude, data)
+	return CreateFileObjectDBCompare(listResultAll, listResultExcel, data)
 }
 
 func (s CommonSvc) DownloadTemplate(c *gin.Context) {
 	timestamp := time.Now().Format("20060102150405")
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() {
+        if err := f.Close(); err != nil {
+            fmt.Println(err)
+        }
+    }()
 	
 	s.makeTemplateExcel(f)
 
 	//Save File
-	filename := fmt.Sprintf("Tampar-Object-DB-%s.xlsx", timestamp)
+	filename := fmt.Sprintf("Template-Tampar-Object-DB-%s.xlsx", timestamp)
 	byteBuff, errData := f.WriteToBuffer()
 	if errData != nil {
 		c.JSON(ErrorBody(errData))
 		return
 	}
 
-	c.Writer.Header().Add("Content-Description", "File Transfer")
-	c.Writer.Header().Add("Content-Disposition", "attachment; filename="+filename)
-	c.Writer.Header().Add("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
+	// c.Writer.Header().Add("Content-Description", "File Transfer")
+	// c.Writer.Header().Add("Content-Disposition", "attachment; filename="+filename)
+	// c.Writer.Header().Add("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	// c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
 
-	reader := bytes.NewReader(byteBuff.Bytes())
-	_, errData = io.Copy(c.Writer, reader)
-	if errData != nil {
-		c.JSON(ErrorBody(errData))
-		return
-	}
+	// reader := bytes.NewReader(byteBuff.Bytes())
+	// _, errData = io.Copy(c.Writer, reader)
+	// if errData != nil {
+	// 	c.JSON(ErrorBody(errData))
+	// 	return
+	// }
 
-	c.JSON(SuccessBody(nil, "Success"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(filename)))
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", byteBuff.Bytes())
+
+	//c.JSON(SuccessBody(nil, "Success"))
 }
 
 func (s CommonSvc) makeTemplateExcel(f *excelize.File){
@@ -249,9 +269,9 @@ func (s CommonSvc) makeTemplateExcel(f *excelize.File){
 
 	for i := range sheets {
 		
-		f.SetColWidth(sheets[i], "A", "A", 40)
-		f.SetColWidth(sheets[i], "B", "B", 50)
-		f.SetColWidth(sheets[i], "C", "D", 40)
+		f.SetColWidth(sheets[i], "A", "A", 20)
+		f.SetColWidth(sheets[i], "B", "B", 45)
+		f.SetColWidth(sheets[i], "C", "D", 20)
 		f.SetCellValue(sheets[i], "A1", "OWNER")
 		f.SetCellValue(sheets[i], "B1", "OBJECT NAME")
 		if(sheets[i] == sheetException){

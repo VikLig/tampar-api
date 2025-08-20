@@ -61,7 +61,10 @@ type OracleUserObject struct {
 	ObjectEnv	 string
 	Ddl          string
 	Cell         string
-	IsListed 	string
+	IsListed 	 string
+	Status 	  	 string
+	Pic 		 string
+	Remark 		 string
 }
 
 type ExcelUserObject struct {
