@@ -1,0 +1,7 @@
+{"log.level":"PANIC","@timestamp":"2025-08-18T22:52:41+07:00","message":"sql: unknown driver \"\" (forgotten import?)"}
+{"log.level":"PANIC","@timestamp":"2025-08-18T22:59:28+07:00","message":"sql: unknown driver \"\" (forgotten import?)"}
+{"log.level":"PANIC","@timestamp":"2025-08-18T23:00:34+07:00","message":"sql: unknown driver \"\" (forgotten import?)"}
+{"log.level":"INFO","@timestamp":"2025-08-18T23:03:10+07:00","message":"SERVER STARTED"}
+{"log.level":"INFO","@timestamp":"2025-08-18T23:13:41+07:00","message":"SERVER STARTED"}
+{"log.level":"INFO","@timestamp":"2025-08-18T23:15:38+07:00","message":"SERVER STARTED"}
+{"log.level":"INFO","@timestamp":"2025-08-18T23:17:42+07:00","message":"SERVER STARTED"}

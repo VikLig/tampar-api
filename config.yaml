@@ -1,0 +1,69 @@
+serverPort: 6999
+environment: qa # dev/qa/uat/prodlike/prod
+appName: tampar-api
+releaseMode: n # y / n
+
+# LOG DIRECTORY
+logDirectory:
+  dev:
+    path: C:\\SMLogs\\
+  qa:
+    path:
+  uat:
+    path:
+  prodlike:
+    path:
+  prod:
+    path:
+
+# DATABASE CONFIG
+database:
+  dev:
+    name:
+    username:
+    password:
+    url:
+    port:
+    sid:
+  qa:
+    name:
+    username:
+    password:
+    url:
+    port:
+    sid:
+  uat:
+    name:
+    username:
+    password:
+    url:
+    port:
+    sid:
+  prodlike:
+    name:
+    username:
+    password:
+    url:
+    port:
+    sid:
+  prod:
+    name:
+    username:
+    password:
+    url:
+    port:
+    sid:
+
+securitySetting:
+  dev:
+    accessControlAllowOrigin: "*"
+  qa:
+    accessControlAllowOrigin: "*"
+  uat:
+    accessControlAllowOrigin: "*"
+  soc:
+    accessControlAllowOrigin:
+  prodlike:
+    accessControlAllowOrigin:
+  prod:
+    accessControlAllowOrigin:
