@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -60,13 +61,20 @@ func NewOracleDatabase(config model.OracleDbConfig) model.Database {
 	return model.Database{Database: database, Schema: config.DbUsername, Enviroment: config.DbEnv}
 }
 
-func GetOracleDB(data model.DataExcel)[]model.Database{
+func GetOracleDB(data model.DataExcel)([]model.Database, error){
+	var errData error
 	oraDbList := make([]model.Database, 0)
-	oraSourceDbList := GetOraSource(data.Schema, data.EnvSource)
-	oraTargetDbList := GetOraSource(data.Schema, data.EnvTarget)
+	oraSourceDbList, errData := GetOraSource(data.Schema, data.EnvSource)
+	if errData != nil {
+		return nil, errData
+	}
+	oraTargetDbList, errData := GetOraSource(data.Schema, data.EnvTarget)
+	if errData != nil {
+		return nil, errData
+	}
 	oraDbList = append(oraDbList, oraSourceDbList...)
 	oraDbList = append(oraDbList, oraTargetDbList...)
-	return oraDbList
+	return oraDbList, errData
 }
 
 func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude []model.OracleUserObject, errData error) {
@@ -94,6 +102,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 1
 				obj = append(obj, data)
 			}
 		}
@@ -108,6 +117,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 2
 				obj = append(obj, data)
 			}
 		}
@@ -122,6 +132,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 3
 				obj = append(obj, data)
 			}
 		}
@@ -136,6 +147,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 4
 				obj = append(obj, data)
 			}
 		}
@@ -150,20 +162,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
-				obj = append(obj, data)
-			}
-		}
-	}
-
-	if len(rowsTrigger) > 1 {
-		data.ObjectType = ORACLE_TYPE_TRIGGER
-		for i, row := range rowsTrigger[1:] {
-			if len(row) > 0 {
-				data.ObjectOwner = strings.TrimSpace(row[0])
-				data.ObjectName = strings.TrimSpace(row[1])
-				data.Remark = strings.TrimSpace(row[2])
-				data.Pic = strings.TrimSpace(row[3])
-				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 5
 				obj = append(obj, data)
 			}
 		}
@@ -178,6 +177,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 6
 				obj = append(obj, data)
 			}
 		}
@@ -191,6 +191,7 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 7
 				obj = append(obj, data)
 			}
 		}
@@ -204,11 +205,26 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 				data.Remark = strings.TrimSpace(row[2])
 				data.Pic = strings.TrimSpace(row[3])
 				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 8
 				obj = append(obj, data)
 			}
 		}
 	}
-	//}
+	
+	if len(rowsTrigger) > 1 {
+		data.ObjectType = ORACLE_TYPE_TRIGGER
+		for i, row := range rowsTrigger[1:] {
+			if len(row) > 0 {
+				data.ObjectOwner = strings.TrimSpace(row[0])
+				data.ObjectName = strings.TrimSpace(row[1])
+				data.Remark = strings.TrimSpace(row[2])
+				data.Pic = strings.TrimSpace(row[3])
+				data.Cell = fmt.Sprintf("A%d", i+1)
+				data.ObjectSeq = 9
+				obj = append(obj, data)
+			}
+		}
+	}
 
 	objExc := make([]model.OracleUserObject, 0)
 	rowsException, _ := f.GetRows(ORACLE_OBJECT_EXEPTION)
@@ -228,7 +244,30 @@ func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude
 	//obj = DistinctSlice(obj)
 	obj = FilterException(obj, objExc)
 
+	errData = ValidateObjectExcel(obj)
+	if errData != nil {
+		return nil, nil, errData
+	}
+
 	return obj, exclude, errData
+}
+
+func ValidateObjectExcel(objDb []model.OracleUserObject)error{
+	type ErrObj struct {
+        ObjectOwner    string
+        ObjectName     string
+        ObjectType 	   string
+    }
+	listError := make([]ErrObj,0)
+	for _, o := range objDb {
+		if o.ObjectOwner == "" || o.ObjectName == "" || o.ObjectType == "" {
+			listError = append(listError, ErrObj{ObjectOwner: o.ObjectOwner, ObjectName: o.ObjectName, ObjectType: o.ObjectType}) 
+		}
+	}
+	if len(listError) > 0 {
+		return fmt.Errorf("%+v\n", listError)
+	}
+	return nil
 }
 
 func GetSchemaByObject(userObjects []model.OracleUserObject) (owner []string) {
@@ -242,11 +281,16 @@ func GetSchemaByObject(userObjects []model.OracleUserObject) (owner []string) {
 	return owner
 }
 
-func GetOraSource(listSchema []string, env string) []model.Database {
+func GetOraSource(listSchema []string, env string) ([]model.Database, error) {
 	var (
 		OraSourceDbList []model.Database
+		errData error
 	)
-	return OraSourceDbList
+
+	if len(OraSourceDbList) == 0 {
+		return nil, errors.New("Oracle Connection empty")
+	}
+	return OraSourceDbList, errData
 }
 
 func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleUserObject, data model.DataExcel) ([]model.OracleUserObject) {
@@ -262,7 +306,10 @@ func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleU
 		
 		if len(listObjectDbs) > 0 {
 			OrderObjDb(listObjectDbs)
-			GetDdl(db, &listObjectDbs, db.Schema)
+			errData := GetDdl(db, &listObjectDbs, db.Schema)
+			if errData != nil {
+				log.Println(errData)
+			}
 			listObjectDbResult = append(listObjectDbResult, listObjectDbs...)
 		}
 		db.Database.Close()
@@ -279,6 +326,10 @@ func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleU
 					listObjectDbResult[j].IsListed = listObjectExcel[i].IsListed
 					listObjectDbResult[j].Remark = listObjectExcel[i].Remark
 					listObjectDbResult[j].Pic = listObjectExcel[i].Pic
+					if listObjectExcel[i].ObjectStatus != "" {
+						listObjectDbResult[j].ObjectStatus = listObjectDbResult[j].ObjectStatus+", "+listObjectExcel[i].ObjectStatus
+					}
+					listObjectExcel[i].ObjectStatus = listObjectDbResult[j].ObjectStatus
 					break
 				}
 			}
@@ -400,37 +451,41 @@ func CreateFileObjectDB(userObjects []model.OracleUserObject, env string)([]byte
 	return buf.Bytes(), zipFileName, nil
 }
 
-func GetDdl(conn model.Database, userObjects *[]model.OracleUserObject, schema string) {
+func GetDdl(conn model.Database, userObjects *[]model.OracleUserObject, schema string) error {
 
 	_, errData := conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'STORAGE',FALSE); END;")
 	if errData != nil {
 		log.Println(errData)
+		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'SEGMENT_ATTRIBUTES',FALSE); END;")
 	if errData != nil {
 		log.Println(errData)
+		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM, 'EMIT_SCHEMA', FALSE); END;")
 	if errData != nil {
 		log.Println(errData)
+		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'SQLTERMINATOR', TRUE); END;")
 	if errData != nil {
 		log.Println(errData)
+		return errData
 	}
 
 	for i, userObject := range *userObjects {
 		if strings.TrimSpace(userObject.ObjectOwner) != "" && !strings.EqualFold(strings.TrimSpace(userObject.ObjectOwner), schema) {
+			(*userObjects)[i].ObjectStatus = "Object Owner Empty or Not Valid"
 			continue
 		}
 
-		//fmt.Println("Get DDL from " + userObject.ObjectOwner + " for " + userObject.ObjectName + " of type " + userObject.ObjectType)
 		rows, errData := conn.Database.Query("SELECT DBMS_METADATA.GET_DDL('" + strings.TrimSpace(userObject.ObjectType) + "', '" + strings.TrimSpace(userObject.ObjectName) + "', '" + strings.TrimSpace(schema) + "') FROM DUAL")
 		if errData != nil {
-			log.Println(errData)
+			(*userObjects)[i].ObjectStatus = errData.Error()
 			continue
 		}
 
@@ -439,34 +494,12 @@ func GetDdl(conn model.Database, userObjects *[]model.OracleUserObject, schema s
 			errData = rows.Scan(&(*userObjects)[i].Ddl)
 
 			if errData != nil {
-				log.Println(errData)
+				(*userObjects)[i].ObjectStatus = errData.Error()
 				continue
 			}
 		}
 	}
-}
-
-// GetUserObjects retrieves user objects from the database and returns them as a slice of OracleUserObject.
-func GetUserObjects(conn *model.Database) []model.OracleUserObject {
-	var (
-		results []model.OracleUserObject
-		result  model.OracleUserObject
-	)
-	rows, errData := conn.Database.Query("SELECT OBJECT_NAME, OBJECT_ID, OBJECT_TYPE FROM USER_OBJECTS ORDER BY CASE WHEN OBJECT_TYPE = 'TYPE' THEN 1 WHEN OBJECT_TYPE = 'SEQUENCE' THEN 2 WHEN OBJECT_TYPE = 'PACKAGE' THEN 3 WHEN OBJECT_TYPE = 'TABLE' THEN 4 WHEN OBJECT_TYPE = 'VIEW' THEN 5 WHEN OBJECT_TYPE = 'INDEX' THEN 6 WHEN OBJECT_TYPE = 'FUNCTION' THEN 7 WHEN OBJECT_TYPE = 'PROCEDURE' THEN 8 ELSE 9 END ASC, (select case when count(1) > 0 then 1 else 0 end from all_dependencies where name = OBJECT_NAME and REFERENCED_TYPE = 'TYPE') ASC, OBJECT_NAME ASC")
-	if errData != nil {
-		log.Println(errData)
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		errData = rows.Scan(&result.ObjectName, &result.ObjectId, &result.ObjectType)
-		if errData != nil {
-			log.Println(errData)
-			continue
-		}
-		results = append(results, result)
-	}
-	return results
+	return errData
 }
 
 func GetObjectBySchema(listDb []model.OracleUserObject, schema string)([]model.OracleUserObject){
@@ -522,14 +555,14 @@ func GetObjects(conn model.Database) []model.OracleUserObject {
 				US.OBJECT_NAME ASC`)
 	if errData != nil {
 		log.Println(errData)
+		return nil
 	}
 
 	defer rows.Close()
 	for rows.Next() {
 		errData = rows.Scan(&result.ObjectName, &result.ObjectType, &result.Status, &result.ObjectSeq)
 		if errData != nil {
-			log.Println(errData)
-			continue
+			result.ObjectStatus = errData.Error()
 		}
 		result.ObjectOwner = conn.Schema
 		result.ObjectEnv = conn.Enviroment
@@ -965,7 +998,7 @@ func CompareObjectDb(listObjectDbAll []model.OracleUserObject, listObjectDbExcel
 		found = false
 		similar = false
 		if src.Ddl == "" {
-			listObjEnvSrc[i].ObjectStatus = "MISSING_SOURCE" //Object tidak ada DDL/disource, ada di list
+			listObjEnvSrc[i].ObjectStatus = "MISSING_SOURCE" //Object tidak ada DDL atau disource namun ada di list
 			continue
 		} else {
 			for _, trg := range listObjEnvTrg {
@@ -1067,20 +1100,19 @@ func ObjSeq(objType string)int{
 		seq = 4
 	case ORACLE_TYPE_INDEX:
 		seq = 5
-	case ORACLE_TYPE_PACKAGE:
-		seq = 6
 	case ORACLE_TYPE_OBJECT:
-		seq = 7
+		seq = 6
 	case ORACLE_TYPE_FUNCTION:
-		seq = 8
+		seq = 7
 	case ORACLE_TYPE_PROCEDURE:
+		seq = 8
+	case ORACLE_TYPE_TRIGGER:
 		seq = 9
 	default:
 		seq = 10
 	}
 	return seq
 }
-
 type RestBody struct {
 	Message string `json:"message"`
 	Data    any    `json:"data"`

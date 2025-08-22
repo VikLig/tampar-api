@@ -55,7 +55,7 @@ func (s CommonSvc) Process(c *gin.Context) {
 	data.OutputMode = criteria.OutputMode
 	data.Schema = criteria.Schema
 
-	if criteria.UseExcel == "Y" && criteria.ExcelFile == nil {
+	if criteria.UseExcel == "Y" && len(criteria.ExcelFile) == 0 {
 		c.JSON(ErrorBody(errors.New("Excel file is required")))
 		return
 	}
@@ -63,19 +63,23 @@ func (s CommonSvc) Process(c *gin.Context) {
 	if data.Mode == "COMPARE" {
 		zipBytes, zipFileName, errData = CompareObject(data, criteria.ExcelFile)
 		if errData != nil {
-			c.String(500, "Failed to create zip: %v", errData)
+			errData = fmt.Errorf("Failed to create zip: %v", errData)
+			c.JSON(ErrorBody(errData))
+			//c.String(500, "Failed to create zip: %v", errData)
 			return
 		} else if zipFileName == "" || zipBytes == nil {
-			c.String(400, "Empty Object DB")
+			c.String(200, "Object DB Aman Terkendali")
 			return
 		} 
 	} else if data.Mode == "GENERATE" {
 		zipBytes, zipFileName, errData = GenerateObject(data, criteria.ExcelFile)
 		if errData != nil {
-			c.String(500, "Failed to create zip: %v", errData)
+			errData = fmt.Errorf("Failed to create zip: %v", errData)
+			c.JSON(ErrorBody(errData))
 			return
 		} else if zipFileName == "" || zipBytes == nil {
-			c.String(400, "Empty Object DB")
+			errData = fmt.Errorf("Empty Object DB: %v", errData)
+			c.JSON(ErrorBody(errData))
 			return
 		} 
 	}
@@ -133,7 +137,10 @@ func GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, erro
 		data.Schema = GetSchemaByObject(listObjectDb)
 	}
 
-	oraSourceDbList = GetOraSource(data.Schema, data.EnvSource)
+	oraSourceDbList, errData = GetOraSource(data.Schema, data.EnvSource)
+	if errData != nil {
+		return nil, "", errData
+	}
 	listObjectDb = GetListObjectDb(oraSourceDbList, listObjectDb, data)
 	
 	return CreateFileObjectDB(listObjectDb, data.EnvSource)
@@ -163,7 +170,11 @@ func CompareObject(data model.DataExcel, excelFile []byte) ([]byte, string, erro
 		data.Schema = GetSchemaByObject(listObjectDb)
 	}
 
-	listObjectDbAll := GetListObjectDb(GetOracleDB(data), listObjectDb, data)
+	listCon, errData := GetOracleDB(data)
+	if errData != nil {
+		return nil, "", errData
+	}
+	listObjectDbAll := GetListObjectDb(listCon, listObjectDb, data)
 	listResultAll, listResultExcel := CompareObjectDb(listObjectDbAll, listObjectDb, listExclude, data)
 	return CreateFileObjectDBCompare(listResultAll, listResultExcel, data)
 }
