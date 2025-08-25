@@ -4,13 +4,18 @@ import (
 	"net/http"
 	"strings"
 	"tampar-api/model/constant"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/patrickmn/go-cache"
 )
+
+var appCache *cache.Cache
 
 type RequestHandler struct {
 	Gin *gin.Engine
 }
+
 
 func CorsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -40,10 +45,12 @@ func CorsMiddleware() gin.HandlerFunc {
 }
 
 func NewRequestHandler(config Config) RequestHandler {
+	//InitCache()
 	gin.SetMode(config.AppMode)
 	engine := gin.New()
 
 	engine.Use(CorsMiddleware())
+	//engine.Use(CacheMiddleware())
 	engine.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, "Ooops Page Not Found")
 	})
@@ -60,4 +67,17 @@ func NewRequestHandler(config Config) RequestHandler {
 
 	engine.SetTrustedProxies(nil)
 	return RequestHandler{Gin: engine}
+}
+
+func CacheMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("cache", appCache)
+		c.Next()
+	}
+}
+
+func InitCache() {
+	// Default expiration: 10 menit
+	// Cleanup interval: 5 menit
+	appCache = cache.New(10*time.Minute, 5*time.Minute)
 }

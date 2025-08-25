@@ -1,5 +1,5 @@
 serverPort: 6999
-environment: qa # dev/qa/uat/prodlike/prod
+environment: dev # dev/qa/uat/prodlike/prod
 appName: tampar-api
 releaseMode: n # y / n
 
@@ -19,12 +19,12 @@ logDirectory:
 # DATABASE CONFIG
 database:
   dev:
-    name:
-    username:
+    name: mysql
+    username: root
     password:
-    url:
-    port:
-    sid:
+    url: localhost
+    port: 3306
+    sid: parking
   qa:
     name:
     username:

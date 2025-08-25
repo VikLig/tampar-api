@@ -61,25 +61,25 @@ func (s CommonSvc) Process(c *gin.Context) {
 	}
 
 	if data.Mode == "COMPARE" {
-		zipBytes, zipFileName, errData = CompareObject(data, criteria.ExcelFile)
+		zipBytes, zipFileName, errData = s.CompareObject(data, criteria.ExcelFile)
 		if errData != nil {
 			errData = fmt.Errorf("Failed to create zip: %v", errData)
 			c.JSON(ErrorBody(errData))
 			//c.String(500, "Failed to create zip: %v", errData)
 			return
 		} else if zipFileName == "" || zipBytes == nil {
-			c.String(200, "Object DB Aman Terkendali")
+			c.JSON(SuccessBody(nil, "Object DB Aman Terkendali"))
 			return
 		} 
 	} else if data.Mode == "GENERATE" {
-		zipBytes, zipFileName, errData = GenerateObject(data, criteria.ExcelFile)
+		zipBytes, zipFileName, errData = s.GenerateObject(data, criteria.ExcelFile)
 		if errData != nil {
 			errData = fmt.Errorf("Failed to create zip: %v", errData)
 			c.JSON(ErrorBody(errData))
 			return
 		} else if zipFileName == "" || zipBytes == nil {
 			errData = fmt.Errorf("Empty Object DB: %v", errData)
-			c.JSON(ErrorBody(errData))
+			c.JSON(ErrorBody(errData, 400))
 			return
 		} 
 	}
@@ -113,12 +113,12 @@ func (s CommonSvc) Process(c *gin.Context) {
 	//c.JSON(SuccessBody(nil, "Success"))
 }
 
-func GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, error) {
+func (s CommonSvc) GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, error) {
 	var (
 		byteReader   *bytes.Reader
 		xlsx         *excelize.File
 		errData      error
-		listObjectDb []model.OracleUserObject
+		listObjectDbExcel []model.OracleUserObject
 		oraSourceDbList []model.Database
 	)
 
@@ -128,25 +128,28 @@ func GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, erro
 		if errData != nil {
 			return nil, "", errData
 		}
-		listObjectDb, _, errData = GetObjectFromExcel(xlsx)
-		if len(listObjectDb) == 0 {
+		listObjectDbExcel, _, errData = GetObjectFromExcel(xlsx)
+		if len(listObjectDbExcel) == 0 {
 			return nil, "", nil
 		} else if errData != nil {
 			return nil, "", errData
 		}
-		data.Schema = GetSchemaByObject(listObjectDb)
+		data.Schema = GetSchemaByObject(listObjectDbExcel)
 	}
 
-	oraSourceDbList, errData = GetOraSource(data.Schema, data.EnvSource)
+	listDbConfig, errData := s.commonMapper.GetDBConfig(data.EnvSource, data.EnvTarget)
 	if errData != nil {
 		return nil, "", errData
 	}
-	listObjectDb = GetListObjectDb(oraSourceDbList, listObjectDb, data)
-	
-	return CreateFileObjectDB(listObjectDb, data.EnvSource)
+	oraSourceDbList, errData = GetOraSource(listDbConfig, data.Schema, data.EnvSource)
+	if errData != nil {
+		return nil, "", errData
+	}
+	listObjectDb := GetListObjectDb(oraSourceDbList, listObjectDbExcel, data)
+	return CreateFileObjectDB(listObjectDb, data.EnvSource, data.FileName)
 }
 
-func CompareObject(data model.DataExcel, excelFile []byte) ([]byte, string, error) {
+func (s CommonSvc) CompareObject(data model.DataExcel, excelFile []byte) ([]byte, string, error) {
 	var (
 		byteReader 		*bytes.Reader
 		xlsx       		*excelize.File
@@ -170,7 +173,11 @@ func CompareObject(data model.DataExcel, excelFile []byte) ([]byte, string, erro
 		data.Schema = GetSchemaByObject(listObjectDb)
 	}
 
-	listCon, errData := GetOracleDB(data)
+	listDbConfig, errData := s.commonMapper.GetDBConfig(data.EnvSource, data.EnvTarget)
+	if errData != nil {
+		return nil, "", errData
+	}
+	listCon, errData := GetOracleDBForCompare(listDbConfig, data)
 	if errData != nil {
 		return nil, "", errData
 	}
@@ -187,7 +194,10 @@ func (s CommonSvc) DownloadTemplate(c *gin.Context) {
             fmt.Println(err)
         }
     }()
-	
+	// cache := c.MustGet("cache").(*cache.Cache)
+	// expiration := 1 * time.Minute
+	// cache.Set(timestamp, "Creating Template ...", expiration)
+	// cache.Delete(timestamp)
 	s.makeTemplateExcel(f)
 
 	//Save File
@@ -217,8 +227,6 @@ func (s CommonSvc) DownloadTemplate(c *gin.Context) {
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", byteBuff.Bytes())
-
-	//c.JSON(SuccessBody(nil, "Success"))
 }
 
 func (s CommonSvc) makeTemplateExcel(f *excelize.File){
@@ -306,3 +314,39 @@ func (s CommonSvc) makeTemplateExcel(f *excelize.File){
 		Version:        "1.0.0",
 	})
 }
+
+func (s CommonSvc) GetSchema(c *gin.Context) {
+
+	result,  errData := s.commonMapper.GetSchema()
+	if errData != nil {
+		c.JSON(ErrorBody(errData))
+		return
+	}
+
+	c.JSON(SuccessBody(result, "Success"))
+}
+
+// func (s CommonSvc) DownloadTemplateLog(c *gin.Context) {
+// 	key := c.Param("key")
+//     c.Writer.Header().Set("Content-Type", "text/event-stream")
+//     c.Writer.Header().Set("Cache-Control", "no-cache")
+//     c.Writer.Header().Set("Connection", "keep-alive")
+
+//     logs := []string{
+//         "Memulai proses...",
+//         "Mengambil data...",
+//         "Menyiapkan file...",
+//         "Siap untuk didownload.",
+//     }
+// 	cache := c.MustGet("cache").(*cache.Cache)
+	
+// 	if cachedData, found := cache.Get(key); found {
+
+// 	}
+
+//     for _, log := range logs {
+//         fmt.Fprintf(c.Writer, "data: %s\n\n", log)
+//         c.Writer.Flush()
+//         time.Sleep(1 * time.Second)
+//     }
+// }

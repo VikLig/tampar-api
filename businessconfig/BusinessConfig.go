@@ -25,6 +25,7 @@ func businessConfig(
 	config utils.Config,
 	handler utils.RequestHandler,
 	logger utils.Logger,
+	database utils.Database,
 	listRest rest.ListRest,
 ) {
 	lifecycle.Append(fx.Hook{
@@ -37,6 +38,7 @@ func businessConfig(
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			database.Database.Close()
 			logger.Logger.Infof("SERVER STOPPED")
 			return nil
 		},

@@ -10,6 +10,7 @@ type DataExcel struct {
 	EnvSource   string   `json:"envSource"`
 	EnvTarget   string   `json:"envTarget"`
 	OutputMode  string   `json:"outputMode"`
+	FileName 	string	 `json:"fileName"`
 }
 
 type ORACLE_OBJECT_TYPE string
@@ -75,4 +76,11 @@ type ExcelUserObject struct {
 	Remark       string
 	UserModified string
 	Project      string
+}
+
+type SchemaCriteria struct {
+	Mode string `json:"mode"`
+	Schema string `json:"schema"`
+	Env string `json:"env"`
+	FlagSchemaOnly string `json:"flagSchemaOnly"`
 }

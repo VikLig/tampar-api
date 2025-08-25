@@ -53,22 +53,23 @@ const (
 	OBJ_STS_MISSING_SOURCE= "MISSING_SOURCE"
 )
 
-func NewOracleDatabase(config model.OracleDbConfig) model.Database {
+func NewOracleDatabase(config model.OracleDbConfig) (model.Database, error) {
 	database, errData := sql.Open(config.DbName, config.DbName+"://"+config.DbUsername+":"+config.DbPassword+"@"+config.DbUrl+":"+config.DbPort+"/"+config.DbSid)
 	if errData != nil {
 		log.Println(errData)
 	}
-	return model.Database{Database: database, Schema: config.DbUsername, Enviroment: config.DbEnv}
+	return model.Database{Database: database, Schema: config.DbUsername, Enviroment: config.DbEnv}, errData
 }
 
-func GetOracleDB(data model.DataExcel)([]model.Database, error){
+func GetOracleDBForCompare(listDbConfig []model.OracleDbConfig, data model.DataExcel)([]model.Database, error){
 	var errData error
 	oraDbList := make([]model.Database, 0)
-	oraSourceDbList, errData := GetOraSource(data.Schema, data.EnvSource)
+	
+	oraSourceDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvSource)
 	if errData != nil {
 		return nil, errData
 	}
-	oraTargetDbList, errData := GetOraSource(data.Schema, data.EnvTarget)
+	oraTargetDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvTarget)
 	if errData != nil {
 		return nil, errData
 	}
@@ -281,16 +282,42 @@ func GetSchemaByObject(userObjects []model.OracleUserObject) (owner []string) {
 	return owner
 }
 
-func GetOraSource(listSchema []string, env string) ([]model.Database, error) {
-	var (
-		OraSourceDbList []model.Database
-		errData error
-	)
+func GetOraSource(listDbConfig []model.OracleDbConfig, listSchema []string, env string) (oraSourceDbList []model.Database, errData error) {
+	// var (
+	// 	oraSourceDbList []model.Database
+	// 	errData error
+	// )
 
-	if len(OraSourceDbList) == 0 {
+	for i := range listSchema{
+		found := false
+		for _, db := range listDbConfig {
+			if db.DbEnv == env && db.DbUsername == listSchema[i]{
+				openDb, errData := NewOracleDatabase(db)
+				if errData != nil {
+					goto errorDb
+				}
+				oraSourceDbList = append(oraSourceDbList, openDb)
+				found = true
+				break
+			}
+		}
+		if !found {
+			errData = fmt.Errorf("DB Config for %s Environment %s Not Found", listSchema[i], env)
+			goto errorDb
+		}
+	}
+
+	if len(oraSourceDbList) == 0 {
 		return nil, errors.New("Oracle Connection empty")
 	}
-	return OraSourceDbList, errData
+
+	errorDb:
+	if len(oraSourceDbList) > 0 {
+		for _, db := range oraSourceDbList {
+			db.Database.Close()
+		}
+	}
+	return oraSourceDbList, errData
 }
 
 func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleUserObject, data model.DataExcel) ([]model.OracleUserObject) {
@@ -370,11 +397,11 @@ func DistinctObjectDB(s []model.OracleUserObject) []model.OracleUserObject {
 	return unique
 }
 
-func CreateFileObjectDB(userObjects []model.OracleUserObject, env string)([]byte, string, error) {
+func CreateFileObjectDB(userObjects []model.OracleUserObject, env string, fileName string)([]byte, string, error) {
 	userObjectsMap := make(map[string][]model.OracleUserObject)
 
-	timestamp := time.Now().Format("20060102150405")
-	baseFolder := fmt.Sprintf("Tampar-Object-DB-%s-%s",env, timestamp)
+	//timestamp := time.Now().Format("20060102150405")
+	baseFolder := fileName
 	zipFileName := baseFolder + ".zip"
 
 	buf := new(bytes.Buffer)
@@ -575,7 +602,7 @@ func CreateFileObjectDBCompare(userObjects []model.OracleUserObject, userObjects
 	userObjectsMap := make(map[string][]model.OracleUserObject)
 
 	timestamp := time.Now().Format("20060102150405")
-	baseFolder := fmt.Sprintf("Tampar-Object-DB-%s To %s-%s",data.EnvSource, data.EnvTarget, timestamp)
+	baseFolder := data.FileName
 	zipFileName := baseFolder + ".zip"
 
 	buf := new(bytes.Buffer)
@@ -915,7 +942,7 @@ func NormalizeDdl(s string) string {
 	var result strings.Builder
 	i := 0
 	for i < len(s) {
-		if i+2 < len(s) && s[i] == '/' && s[i+1] == '*' {
+		if i+2 < len(s) && s[i] == '/' && (s[i+1] == '*' || (s[i+1] == '\n' && s[i+2] == '*')) {
 			// Jika hint /*+ ... */
 			if i+2 < len(s) && s[i+2] == '+' {
 				// Cari akhir blok */
@@ -928,12 +955,17 @@ func NormalizeDdl(s string) string {
 				i += end + 2
 			} else {
 				// Bukan hint, hapus blok comment
-				end := strings.Index(s[i:], "*/")
-				if end == -1 {
-					i = len(s)
-				} else {
-					i += end + 2
-				}
+                end := strings.Index(s[i:], "*/")
+                end1 := strings.Index(s[i:], "*\n/")
+                if end == -1 && end1 == -1 {
+                    i = len(s)
+                } else {
+                  if end >= 0 && (end <= end1 || end1 == -1) {
+                     i += end + 2
+                  } else {
+                     i += end1 + 3
+                  }
+                }
 			}
 		} else {
 			result.WriteByte(s[i])
