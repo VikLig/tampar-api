@@ -61,22 +61,22 @@ func NewOracleDatabase(config model.OracleDbConfig) (model.Database, error) {
 	return model.Database{Database: database, Schema: config.DbUsername, Enviroment: config.DbEnv}, errData
 }
 
-func GetOracleDBForCompare(listDbConfig []model.OracleDbConfig, data model.DataExcel)([]model.Database, error){
-	var errData error
-	oraDbList := make([]model.Database, 0)
+// func GetOracleDBForCompare(listDbConfig []model.OracleDbConfig, data model.DataExcel)([]model.Database, error){
+// 	var errData error
+// 	oraDbList := make([]model.Database, 0)
 	
-	oraSourceDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvSource)
-	if errData != nil {
-		return nil, errData
-	}
-	oraTargetDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvTarget)
-	if errData != nil {
-		return nil, errData
-	}
-	oraDbList = append(oraDbList, oraSourceDbList...)
-	oraDbList = append(oraDbList, oraTargetDbList...)
-	return oraDbList, errData
-}
+// 	oraSourceDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvSource)
+// 	if errData != nil {
+// 		return nil, errData
+// 	}
+// 	oraTargetDbList, errData := GetOraSource(listDbConfig, data.Schema, data.EnvTarget)
+// 	if errData != nil {
+// 		return nil, errData
+// 	}
+// 	oraDbList = append(oraDbList, oraSourceDbList...)
+// 	oraDbList = append(oraDbList, oraTargetDbList...)
+// 	return oraDbList, errData
+// }
 
 func GetObjectFromExcel(f *excelize.File) (obj []model.OracleUserObject, exclude []model.OracleUserObject, errData error) {
 	var (
@@ -274,36 +274,40 @@ func ValidateObjectExcel(objDb []model.OracleUserObject)error{
 func GetSchemaByObject(userObjects []model.OracleUserObject) (owner []string) {
 	m := map[string]bool{}
 	for _, v := range userObjects {
-		if !m[v.ObjectOwner] {
+		if !m[v.ObjectOwner] && v.ObjectOwner != "" {
 			m[v.ObjectOwner] = true
-			owner = append(owner, v.ObjectOwner)
+			owner = append(owner, strings.TrimSpace(v.ObjectOwner))
 		}
 	}
 	return owner
 }
 
-func GetOraSource(listDbConfig []model.OracleDbConfig, listSchema []string, env string) (oraSourceDbList []model.Database, errData error) {
-	// var (
-	// 	oraSourceDbList []model.Database
-	// 	errData error
-	// )
+func GetOraSource(listDbConfig []model.OracleDbConfig, data model.DataExcel) (oraSourceDbList []model.Database, errData error) {
+	listEnv := make([]string, 0)
+	listEnv = append(listEnv, data.EnvSource)
+	if data.Mode == "COMPARE" && data.EnvTarget != ""{
+		listEnv = append(listEnv, data.EnvTarget)
+	}
 
-	for i := range listSchema{
-		found := false
-		for _, db := range listDbConfig {
-			if db.DbEnv == env && db.DbUsername == listSchema[i]{
-				openDb, errData := NewOracleDatabase(db)
-				if errData != nil {
-					goto errorDb
+	for e := range listEnv {
+		for i := range data.Schema {
+			found := false
+			for _, db := range listDbConfig {
+				if db.DbUsername == data.Schema[i] && db.DbEnv == listEnv[e] {
+					openDb, errData := NewOracleDatabase(db)
+					if errData != nil {
+						goto errorDb
+					}
+					oraSourceDbList = append(oraSourceDbList, openDb)
+					found = true
+					break
 				}
-				oraSourceDbList = append(oraSourceDbList, openDb)
-				found = true
-				break
 			}
-		}
-		if !found {
-			errData = fmt.Errorf("DB Config for %s Environment %s Not Found", listSchema[i], env)
-			goto errorDb
+
+			if !found {
+				errData = fmt.Errorf("DB Config for %s Environment %s Not Found", data.Schema[i], listEnv[e])
+				goto errorDb
+			}
 		}
 	}
 
@@ -312,11 +316,13 @@ func GetOraSource(listDbConfig []model.OracleDbConfig, listSchema []string, env 
 	}
 
 	errorDb:
-	if len(oraSourceDbList) > 0 {
+	if len(oraSourceDbList) > 0 && errData != nil {
 		for _, db := range oraSourceDbList {
 			db.Database.Close()
 		}
+		return nil, errData
 	}
+	
 	return oraSourceDbList, errData
 }
 
@@ -333,7 +339,7 @@ func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleU
 		
 		if len(listObjectDbs) > 0 {
 			OrderObjDb(listObjectDbs)
-			errData := GetDdl(db, &listObjectDbs, db.Schema)
+			errData := GetDdl(db, listObjectDbs, db.Schema)
 			if errData != nil {
 				log.Println(errData)
 			}
@@ -346,15 +352,15 @@ func GetListObjectDb(oraDbList []model.Database, listObjectExcel []model.OracleU
 	if data.Mode == "COMPARE" && data.UseExcel == "Y"  {
 		for i := range listObjectExcel {
 			for j := range listObjectDbResult {
-				if strings.EqualFold(listObjectDbResult[j].ObjectEnv, data.EnvSource) && strings.EqualFold(listObjectExcel[i].ObjectOwner, listObjectDbResult[j].ObjectOwner) && strings.EqualFold(listObjectExcel[i].ObjectType, listObjectDbResult[j].ObjectType) && 
-				strings.EqualFold(listObjectExcel[i].ObjectName, listObjectDbResult[j].ObjectName) {
+				if strings.EqualFold(listObjectDbResult[j].ObjectEnv, data.EnvSource) && strings.EqualFold(listObjectExcel[i].ObjectOwner, listObjectDbResult[j].ObjectOwner) && 
+				strings.EqualFold(listObjectExcel[i].ObjectType, listObjectDbResult[j].ObjectType) && strings.EqualFold(listObjectExcel[i].ObjectName, listObjectDbResult[j].ObjectName) {
 					listObjectExcel[i].Ddl = listObjectDbResult[j].Ddl
 					listObjectExcel[i].Status = listObjectDbResult[j].Status//Valid-Invalid
 					listObjectDbResult[j].IsListed = listObjectExcel[i].IsListed
 					listObjectDbResult[j].Remark = listObjectExcel[i].Remark
 					listObjectDbResult[j].Pic = listObjectExcel[i].Pic
 					if listObjectExcel[i].ObjectStatus != "" {
-						listObjectDbResult[j].ObjectStatus = listObjectDbResult[j].ObjectStatus+", "+listObjectExcel[i].ObjectStatus
+						listObjectDbResult[j].ObjectStatus = listObjectDbResult[j].ObjectStatus+" | "+listObjectExcel[i].ObjectStatus
 					}
 					listObjectExcel[i].ObjectStatus = listObjectDbResult[j].ObjectStatus
 					break
@@ -390,7 +396,7 @@ func DistinctObjectDB(s []model.OracleUserObject) []model.OracleUserObject {
 		str := fmt.Sprintf("%s#%s#%s#%s", v.ObjectEnv, v.ObjectOwner, v.ObjectType, v.ObjectName)
 		if !m[str] {
 			m[str] = true
-			v.ObjectSeq = ObjSeq(v.ObjectType)
+			//v.ObjectSeq = ObjSeq(v.ObjectType)
 			unique = append(unique, v)
 		}
 	}
@@ -416,12 +422,16 @@ func CreateFileObjectDB(userObjects []model.OracleUserObject, env string, fileNa
 		}
 		userObjectsMap[userObject.ObjectOwner] = append(userObjectsMap[userObject.ObjectOwner], userObject)
 	}
-
+	summary := new(strings.Builder)
 	for owner, objDBs := range userObjectsMap {
+		summary.WriteString("--== "+owner+" "+env+" ==--\n")
 		allObjectSQL := new(strings.Builder)
 		for _, userObject := range objDBs {
-			if userObject.Ddl == "" {
+			if userObject.Ddl == "" || userObject.ObjectStatus != ""{
+				summary.WriteString("EMPTY DDL "+userObject.ObjectType+" "+ userObject.ObjectName+", Status: "+userObject.ObjectStatus+"\n")
 				continue
+			} else if userObject.Status == "INVALID"{
+				summary.WriteString("INVALID "+userObject.ObjectType+" "+ userObject.ObjectName+"\n")
 			}
 			userObject.Ddl = strings.ReplaceAll(userObject.Ddl, " EDITIONABLE ", " ")
 			userObject.Ddl = strings.TrimSpace(userObject.Ddl)
@@ -467,10 +477,26 @@ func CreateFileObjectDB(userObjects []model.OracleUserObject, env string, fileNa
 		if errData != nil {
 			return nil, "", errData
 		}
+		summary.WriteString("--== END OF "+owner+" "+env+" ==--\n")
+	}
+	//Tampar-Object-DB-<time>/<ENV>/GENERATED/<OWNER>/All-OBJECT-<OWNER>-<ENV>.sql
+	summaryFilePath := filepath.Join(
+		baseFolder,
+		"SUMMARY.txt",
+	)
+
+	f, errData := zipWriter.Create(summaryFilePath)
+	if errData != nil {
+		return nil, "", errData
+	}
+
+	_, errData = f.Write([]byte(summary.String()))
+	if errData != nil {
+		return nil, "", errData
 	}
 
 	// Tutup zip writer
-	errData := zipWriter.Close()
+	errData = zipWriter.Close()
 	if errData != nil {
 		return nil, "", errData
 	}
@@ -478,50 +504,52 @@ func CreateFileObjectDB(userObjects []model.OracleUserObject, env string, fileNa
 	return buf.Bytes(), zipFileName, nil
 }
 
-func GetDdl(conn model.Database, userObjects *[]model.OracleUserObject, schema string) error {
+func GetDdl(conn model.Database, userObjects []model.OracleUserObject, schema string) error {
 
 	_, errData := conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'STORAGE',FALSE); END;")
 	if errData != nil {
-		log.Println(errData)
+		//log.Println(errData)
 		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'SEGMENT_ATTRIBUTES',FALSE); END;")
 	if errData != nil {
-		log.Println(errData)
+		//log.Println(errData)
 		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM, 'EMIT_SCHEMA', FALSE); END;")
 	if errData != nil {
-		log.Println(errData)
+		//log.Println(errData)
 		return errData
 	}
 
 	_, errData = conn.Database.Exec("BEGIN DBMS_METADATA.SET_TRANSFORM_PARAM(DBMS_METADATA.SESSION_TRANSFORM,'SQLTERMINATOR', TRUE); END;")
 	if errData != nil {
-		log.Println(errData)
+		//log.Println(errData)
 		return errData
 	}
 
-	for i, userObject := range *userObjects {
-		if strings.TrimSpace(userObject.ObjectOwner) != "" && !strings.EqualFold(strings.TrimSpace(userObject.ObjectOwner), schema) {
-			(*userObjects)[i].ObjectStatus = "Object Owner Empty or Not Valid"
+	for i, uo := range userObjects {
+		if strings.TrimSpace(uo.ObjectOwner) != "" && !strings.EqualFold(strings.TrimSpace(uo.ObjectOwner), schema) {
+			userObjects[i].ObjectStatus = "Object Owner Empty or Not Valid"
+			continue
+		} else if uo.ObjectStatus != "" {
 			continue
 		}
 
-		rows, errData := conn.Database.Query("SELECT DBMS_METADATA.GET_DDL('" + strings.TrimSpace(userObject.ObjectType) + "', '" + strings.TrimSpace(userObject.ObjectName) + "', '" + strings.TrimSpace(schema) + "') FROM DUAL")
+		rows, errData := conn.Database.Query("SELECT DBMS_METADATA.GET_DDL('" + strings.TrimSpace(uo.ObjectType) + "', '" + strings.TrimSpace(uo.ObjectName) + "', '" + strings.TrimSpace(schema) + "') FROM DUAL")
 		if errData != nil {
-			(*userObjects)[i].ObjectStatus = errData.Error()
+			userObjects[i].ObjectStatus = errData.Error()
 			continue
 		}
 
 		defer rows.Close()
 		for rows.Next() {
-			errData = rows.Scan(&(*userObjects)[i].Ddl)
+			errData = rows.Scan(&userObjects[i].Ddl)
 
 			if errData != nil {
-				(*userObjects)[i].ObjectStatus = errData.Error()
+				userObjects[i].ObjectStatus = errData.Error()
 				continue
 			}
 		}
@@ -560,28 +588,26 @@ func GetObjects(conn model.Database) []model.OracleUserObject {
 	)
 	rows, errData := conn.Database.Query(
 			`SELECT DISTINCT OBJECT_NAME, OBJECT_TYPE, STATUS, SEQ FROM (
-			SELECT OBJECT_NAME, OBJECT_TYPE, STATUS,
-			CASE WHEN OBJECT_TYPE = 'TABLE' THEN 1
-				WHEN OBJECT_TYPE = 'VIEW' THEN 2 
-				WHEN OBJECT_TYPE = 'MATERIALIZED VIEW' THEN 3 
-				WHEN OBJECT_TYPE = 'SEQUENCE' THEN 4
-				WHEN OBJECT_TYPE = 'INDEX' THEN 5
-				WHEN OBJECT_TYPE = 'TYPE' THEN 6 
-				WHEN OBJECT_TYPE = 'FUNCTION' THEN 7 
-				WHEN OBJECT_TYPE = 'PROCEDURE' THEN 8
-				WHEN OBJECT_TYPE = 'TRIGGER' THEN 9
-				ELSE 10
-			END SEQ
-			FROM USER_OBJECTS
-			WHERE  OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SEQUENCE', 'INDEX', 'TYPE', 'FUNCTION', 'PROCEDURE', 'TRIGGER')
-			AND UPPER(OBJECT_NAME) NOT LIKE 'SYS.%' AND UPPER(OBJECT_NAME) NOT LIKE 'SYS_%' AND UPPER(OBJECT_NAME) NOT LIKE '%$%'
-			)US 
-			ORDER BY 
-				US.SEQ ASC, 
-				(SELECT CASE WHEN EXISTS(SELECT/*+FIRST_ROW(1)*/ 1 FROM ALL_DEPENDENCIES WHERE OWNER = '` + conn.Schema + `' AND NAME = US.OBJECT_NAME AND REFERENCED_TYPE IS NOT NULL AND ROWNUM = 1) THEN 1 ELSE 0 END FROM DUAL) ASC, 
-				US.OBJECT_NAME ASC`)
+				SELECT OBJECT_NAME, OBJECT_TYPE, STATUS,
+					CASE WHEN OBJECT_TYPE = 'TABLE' THEN 1
+						WHEN OBJECT_TYPE = 'VIEW' THEN 2 
+						WHEN OBJECT_TYPE = 'MATERIALIZED VIEW' THEN 3 
+						WHEN OBJECT_TYPE = 'SEQUENCE' THEN 4
+						WHEN OBJECT_TYPE = 'INDEX' THEN 5
+						WHEN OBJECT_TYPE = 'TYPE' THEN 6 
+						WHEN OBJECT_TYPE = 'FUNCTION' THEN 7 
+						WHEN OBJECT_TYPE = 'PROCEDURE' THEN 8
+						WHEN OBJECT_TYPE = 'TRIGGER' THEN 9
+						ELSE 10
+					END SEQ
+				FROM USER_OBJECTS
+				WHERE  OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SEQUENCE', 'INDEX', 'TYPE', 'FUNCTION', 'PROCEDURE', 'TRIGGER')
+					AND UPPER(OBJECT_NAME) NOT LIKE 'SYS.%' AND UPPER(OBJECT_NAME) NOT LIKE 'SYS_%' AND UPPER(OBJECT_NAME) NOT LIKE '%$%'
+			)US ORDER BY US.SEQ ASC, 
+			(SELECT CASE WHEN EXISTS(SELECT/*+FIRST_ROW(1)*/ 1 FROM ALL_DEPENDENCIES WHERE OWNER = '` + conn.Schema + `' AND NAME = US.OBJECT_NAME AND REFERENCED_TYPE IS NOT NULL AND ROWNUM = 1) THEN 1 ELSE 0 END FROM DUAL) ASC, 
+			US.OBJECT_NAME ASC`)
 	if errData != nil {
-		log.Println(errData)
+		//log.Println(errData)
 		return nil
 	}
 

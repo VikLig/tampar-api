@@ -84,17 +84,6 @@ func (s CommonSvc) Process(c *gin.Context) {
 		} 
 	}
 
-	// Set header agar langsung download
-	// c.Header("Content-Description", "File Transfer")
-	// c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(zipFileName)))
-	// c.Header("Content-Type", "application/zip")
-	// c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	// c.Data(200, "application/zip", zipBytes)
-	// c.Writer.Header().Add("Content-Description", "File Transfer")
-	// c.Writer.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(zipFileName)))
-	// c.Writer.Header().Add("Content-Type", "application/zip")
-	// c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
-
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(zipFileName)))
 	c.Header("Content-Type", "application/zip")
@@ -102,15 +91,6 @@ func (s CommonSvc) Process(c *gin.Context) {
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 	c.Data(200, "application/zip", zipBytes)
-
-	// reader := bytes.NewReader(zipBytes)
-	// _, errData = io.Copy(c.Writer, reader)
-	// if errData != nil {
-	// 	c.JSON(ErrorBody(errData))
-	// 	return
-	// }
-
-	//c.JSON(SuccessBody(nil, "Success"))
 }
 
 func (s CommonSvc) GenerateObject(data model.DataExcel, excelFile []byte)([]byte, string, error) {
@@ -119,7 +99,6 @@ func (s CommonSvc) GenerateObject(data model.DataExcel, excelFile []byte)([]byte
 		xlsx         *excelize.File
 		errData      error
 		listObjectDbExcel []model.OracleUserObject
-		oraSourceDbList []model.Database
 	)
 
 	if data.UseExcel == "Y" {
@@ -129,22 +108,24 @@ func (s CommonSvc) GenerateObject(data model.DataExcel, excelFile []byte)([]byte
 			return nil, "", errData
 		}
 		listObjectDbExcel, _, errData = GetObjectFromExcel(xlsx)
-		if len(listObjectDbExcel) == 0 {
-			return nil, "", nil
-		} else if errData != nil {
+		if errData != nil {
 			return nil, "", errData
-		}
+		} else if len(listObjectDbExcel) == 0 {
+			return nil, "", nil
+		} 
 		data.Schema = GetSchemaByObject(listObjectDbExcel)
 	}
 
-	listDbConfig, errData := s.commonMapper.GetDBConfig(data.EnvSource, data.EnvTarget)
+	listDbConfig, errData := s.commonMapper.GetDBConfig(data)
 	if errData != nil {
 		return nil, "", errData
 	}
-	oraSourceDbList, errData = GetOraSource(listDbConfig, data.Schema, data.EnvSource)
+
+	oraSourceDbList, errData := GetOraSource(listDbConfig, data)
 	if errData != nil {
 		return nil, "", errData
 	}
+
 	listObjectDb := GetListObjectDb(oraSourceDbList, listObjectDbExcel, data)
 	return CreateFileObjectDB(listObjectDb, data.EnvSource, data.FileName)
 }
@@ -154,7 +135,7 @@ func (s CommonSvc) CompareObject(data model.DataExcel, excelFile []byte) ([]byte
 		byteReader 		*bytes.Reader
 		xlsx       		*excelize.File
 		errData    		error
-		listObjectDb 	[]model.OracleUserObject
+		listObjectDbExcel 	[]model.OracleUserObject
 		listExclude 	[]model.OracleUserObject
 	)
 
@@ -164,25 +145,27 @@ func (s CommonSvc) CompareObject(data model.DataExcel, excelFile []byte) ([]byte
 		if errData != nil {
 			return nil, "", errData
 		}
-		listObjectDb, listExclude, errData = GetObjectFromExcel(xlsx)
-		if len(listObjectDb) == 0 {
-			return nil, "", nil
-		} else if errData != nil {
+		listObjectDbExcel, listExclude, errData = GetObjectFromExcel(xlsx)
+		if errData != nil {
 			return nil, "", errData
-		}
-		data.Schema = GetSchemaByObject(listObjectDb)
+		} else if len(listObjectDbExcel) == 0 {
+			return nil, "", nil
+		} 
+		data.Schema = GetSchemaByObject(listObjectDbExcel)
 	}
 
-	listDbConfig, errData := s.commonMapper.GetDBConfig(data.EnvSource, data.EnvTarget)
+	listDbConfig, errData := s.commonMapper.GetDBConfig(data)
 	if errData != nil {
 		return nil, "", errData
 	}
-	listCon, errData := GetOracleDBForCompare(listDbConfig, data)
+
+	oraSourceDbList, errData := GetOraSource(listDbConfig, data)
 	if errData != nil {
 		return nil, "", errData
 	}
-	listObjectDbAll := GetListObjectDb(listCon, listObjectDb, data)
-	listResultAll, listResultExcel := CompareObjectDb(listObjectDbAll, listObjectDb, listExclude, data)
+
+	listObjectDbAll := GetListObjectDb(oraSourceDbList, listObjectDbExcel, data)
+	listResultAll, listResultExcel := CompareObjectDb(listObjectDbAll, listObjectDbExcel, listExclude, data)
 	return CreateFileObjectDBCompare(listResultAll, listResultExcel, data)
 }
 
@@ -194,10 +177,7 @@ func (s CommonSvc) DownloadTemplate(c *gin.Context) {
             fmt.Println(err)
         }
     }()
-	// cache := c.MustGet("cache").(*cache.Cache)
-	// expiration := 1 * time.Minute
-	// cache.Set(timestamp, "Creating Template ...", expiration)
-	// cache.Delete(timestamp)
+
 	s.makeTemplateExcel(f)
 
 	//Save File
@@ -207,18 +187,6 @@ func (s CommonSvc) DownloadTemplate(c *gin.Context) {
 		c.JSON(ErrorBody(errData))
 		return
 	}
-
-	// c.Writer.Header().Add("Content-Description", "File Transfer")
-	// c.Writer.Header().Add("Content-Disposition", "attachment; filename="+filename)
-	// c.Writer.Header().Add("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	// c.Writer.Header().Add("Cache-Control", "no-cache, no-store, must-revalidate")
-
-	// reader := bytes.NewReader(byteBuff.Bytes())
-	// _, errData = io.Copy(c.Writer, reader)
-	// if errData != nil {
-	// 	c.JSON(ErrorBody(errData))
-	// 	return
-	// }
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(filename)))
@@ -325,28 +293,3 @@ func (s CommonSvc) GetSchema(c *gin.Context) {
 
 	c.JSON(SuccessBody(result, "Success"))
 }
-
-// func (s CommonSvc) DownloadTemplateLog(c *gin.Context) {
-// 	key := c.Param("key")
-//     c.Writer.Header().Set("Content-Type", "text/event-stream")
-//     c.Writer.Header().Set("Cache-Control", "no-cache")
-//     c.Writer.Header().Set("Connection", "keep-alive")
-
-//     logs := []string{
-//         "Memulai proses...",
-//         "Mengambil data...",
-//         "Menyiapkan file...",
-//         "Siap untuk didownload.",
-//     }
-// 	cache := c.MustGet("cache").(*cache.Cache)
-	
-// 	if cachedData, found := cache.Get(key); found {
-
-// 	}
-
-//     for _, log := range logs {
-//         fmt.Fprintf(c.Writer, "data: %s\n\n", log)
-//         c.Writer.Flush()
-//         time.Sleep(1 * time.Second)
-//     }
-// }
