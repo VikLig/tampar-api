@@ -532,7 +532,7 @@ func GetDdl(conn model.Database, userObjects []model.OracleUserObject, schema st
 
 	for i, uo := range userObjects {
 		if strings.TrimSpace(uo.ObjectOwner) != "" && !strings.EqualFold(strings.TrimSpace(uo.ObjectOwner), schema) {
-			userObjects[i].ObjectStatus = "Object Owner Empty or Not Valid"
+			userObjects[i].ObjectStatus = "Object Owner Not Found or Not Valid"
 			continue
 		} else if uo.ObjectStatus != "" {
 			continue
@@ -659,11 +659,20 @@ func CreateFileObjectDBCompare(userObjects []model.OracleUserObject, userObjects
 	}
 
 	//grouping objects by owner
-	for _, userObject := range userObjects {
-		if _, ok := userObjectsMap[userObject.ObjectOwner]; !ok {
-			userObjectsMap[userObject.ObjectOwner] = []model.OracleUserObject{}
+	if data.Mode == "EXCEL"{
+		for _, userObject := range userObjectsExcel {
+			if _, ok := userObjectsMap[userObject.ObjectOwner]; !ok {
+				userObjectsMap[userObject.ObjectOwner] = []model.OracleUserObject{}
+			}
+			userObjectsMap[userObject.ObjectOwner] = append(userObjectsMap[userObject.ObjectOwner], userObject)
 		}
-		userObjectsMap[userObject.ObjectOwner] = append(userObjectsMap[userObject.ObjectOwner], userObject)
+	} else {
+		for _, userObject := range userObjects {
+			if _, ok := userObjectsMap[userObject.ObjectOwner]; !ok {
+				userObjectsMap[userObject.ObjectOwner] = []model.OracleUserObject{}
+			}
+			userObjectsMap[userObject.ObjectOwner] = append(userObjectsMap[userObject.ObjectOwner], userObject)
+		}
 	}
 
 	for owner, objDBs := range userObjectsMap {
@@ -858,6 +867,7 @@ func makeSummaryExcel(f *excelize.File, userObjects []model.OracleUserObject, us
 			found := false
 			for _, d := range userObjectsExcel {
 				if strings.EqualFold(d.ObjectType, sheetName) {
+					f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCell)
 					f.SetCellValue(sheetName, fmt.Sprintf("A%v", row), d.ObjectOwner)
 					f.SetCellValue(sheetName, fmt.Sprintf("B%v", row), d.ObjectName)
 					f.SetCellValue(sheetName, fmt.Sprintf("C%v", row), d.Remark)
@@ -865,15 +875,15 @@ func makeSummaryExcel(f *excelize.File, userObjects []model.OracleUserObject, us
 					f.SetCellValue(sheetName, fmt.Sprintf("E%v", row), d.ObjectStatus)
 					f.SetCellValue(sheetName, fmt.Sprintf("F%v", row), d.Status)
 					if d.ObjectStatus == "NEW_LISTED" {
-						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCellNew)
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellNew)
 					} else if d.ObjectStatus == "MOD_NOT_LISTED" {
-						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCellModNL)
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellModNL)
 					} else if d.ObjectStatus == "MISSING_TARGET" {
-						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCellMissT)
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellMissT)
 					} else if d.ObjectStatus == "EQUALS" {
-						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCellEqual)
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellEqual)
 					} else if d.ObjectStatus == "MISSING_SOURCE" {
-						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCellMissS)
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellMissS)
 					} 
 					
 					if d.Status == "INVALID" {
@@ -881,10 +891,11 @@ func makeSummaryExcel(f *excelize.File, userObjects []model.OracleUserObject, us
 					}
 					found = true
 					row++
+					break
 				}
 			}
 			if found {
-				f.SetCellStyle(sheetName, "A2", fmt.Sprintf("F%d", row), styleCell)
+				//f.SetCellStyle(sheetName, "A2", fmt.Sprintf("F%d", row), styleCell)
 				_ = f.SetSheetProps(sheetName, &excelize.SheetPropsOptions{
 						TabColorRGB: &existsColor,
 					})
@@ -895,17 +906,37 @@ func makeSummaryExcel(f *excelize.File, userObjects []model.OracleUserObject, us
 			row := 2
 			found := false
 			for _, d := range userObjects {
-				if strings.EqualFold(d.ObjectType, sheetName) && d.ObjectStatus != "" {
+				if strings.EqualFold(d.ObjectType, sheetName) && (d.ObjectStatus != "" || d.Status != "") {
+					f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("F%d", row), styleCell)
 					f.SetCellValue(sheetName, fmt.Sprintf("A%v", row), d.ObjectOwner)
 					f.SetCellValue(sheetName, fmt.Sprintf("B%v", row), d.ObjectName)
-					f.SetCellValue(sheetName, fmt.Sprintf("C%v", row), d.ObjectStatus)
-					f.SetCellValue(sheetName, fmt.Sprintf("D%v", row), d.Status)
+					f.SetCellValue(sheetName, fmt.Sprintf("C%v", row), d.Remark)
+					f.SetCellValue(sheetName, fmt.Sprintf("D%v", row), d.Pic)
+					f.SetCellValue(sheetName, fmt.Sprintf("E%v", row), d.ObjectStatus)
+					f.SetCellValue(sheetName, fmt.Sprintf("F%v", row), d.Status)
+
+					if d.ObjectStatus == "NEW_LISTED" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellNew)
+					} else if d.ObjectStatus == "MOD_NOT_LISTED" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellModNL)
+					} else if d.ObjectStatus == "MISSING_TARGET" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellMissT)
+					} else if d.ObjectStatus == "EQUALS" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellEqual)
+					} else if d.ObjectStatus == "MISSING_SOURCE" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("A%v", row), fmt.Sprintf("E%d", row), styleCellMissS)
+					} 
+					
+					if d.Status == "INVALID" {
+						f.SetCellStyle(sheetName, fmt.Sprintf("F%v", row), fmt.Sprintf("F%d", row), styleCellInvalid)
+					}
 					found = true
 					row++
+					break
 				}
 			}
 			if found {
-				f.SetCellStyle(sheetName, "A2", fmt.Sprintf("F%d", row), styleCell)
+				//f.SetCellStyle(sheetName, "A2", fmt.Sprintf("F%d", row), styleCell)
 				_ = f.SetSheetProps(sheetName, &excelize.SheetPropsOptions{
 						TabColorRGB: &existsColor,
 					})
@@ -1108,6 +1139,8 @@ func CompareObjectDb(listObjectDbAll []model.OracleUserObject, listObjectDbExcel
 				listObjEnvSrcAll[i].ObjectStatus = "MISSING_TARGET"//Object baru, ada di list
 			} else if found && !similar {
 				listObjEnvSrcAll[i].ObjectStatus = "MOD_NOT_LISTED"//Object berbeda, ada di list
+			} else if found && similar{
+				listObjEnvSrcAll[i].ObjectStatus = "EQUALS"//Sama dengan Env Target
 			}
 		}
 
